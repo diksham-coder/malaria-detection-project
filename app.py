@@ -199,4 +199,9 @@ if __name__ == '__main__':
         print(f"  ⚠️  Error: {MODEL_ERROR}")
     print(f"  🌐 Server: http://127.0.0.1:5000")
     print("="*70 + "\n")
+
     app.run(debug=True, host='127.0.0.1', port=5000, use_reloader=False)
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
