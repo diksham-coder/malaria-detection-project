@@ -44,12 +44,17 @@ if MODEL_ERROR is None:
     try:
         print(f"✓ Script directory: {BASE_DIR}")
 
-        h5_files = [f for f in os.listdir(BASE_DIR) if f.endswith('.h5')]
-        if h5_files:
-            MODEL_PATH = os.path.join(BASE_DIR, h5_files[0])
-            print(f"✓ Found: {h5_files[0]}")
+        # Search for model file (.keras first, then .h5)
+        keras_files = [f for f in os.listdir(BASE_DIR) if f.endswith('.keras')]
+        h5_files    = [f for f in os.listdir(BASE_DIR) if f.endswith('.h5')]
 
-            # ── FIX: batch_shape compatibility for older saved models ──
+        model_file = keras_files[0] if keras_files else (h5_files[0] if h5_files else None)
+
+        if model_file:
+            MODEL_PATH = os.path.join(BASE_DIR, model_file)
+            print(f"✓ Found: {model_file}")
+
+            # ── FIX 1: batch_shape compatibility ──────────────────────────
             from tensorflow.keras.layers import InputLayer
 
             class FixedInputLayer(InputLayer):
@@ -58,22 +63,40 @@ if MODEL_ERROR is None:
                         kwargs['input_shape'] = kwargs.pop('batch_shape')[1:]
                     super().__init__(*args, **kwargs)
 
+            # ── FIX 2: DTypePolicy compatibility ──────────────────────────
+            class DTypePolicy:
+                def __init__(self, name='float32', **kwargs):
+                    self.name = name
+                def get_config(self):
+                    return {'name': self.name}
+                @classmethod
+                def from_config(cls, config):
+                    return cls(**config)
+
+            # ── Load model with all fixes ─────────────────────────────────
             model = tf.keras.models.load_model(
                 MODEL_PATH,
-                custom_objects={'InputLayer': FixedInputLayer},
+                custom_objects={
+                    'InputLayer': FixedInputLayer,
+                    'DTypePolicy': DTypePolicy,
+                },
                 compile=False
             )
-            # ── END FIX ───────────────────────────────────────────────
 
-            model.compile(optimizer='adam', loss='binary_crossentropy',
-                          metrics=['accuracy'])
-            print(f"✓ Loaded! Input: {model.input_shape}, Output: {model.output_shape}")
+            model.compile(
+                optimizer='adam',
+                loss='binary_crossentropy',
+                metrics=['accuracy']
+            )
+            print(f"✓ Model loaded! Input: {model.input_shape}, Output: {model.output_shape}")
+
         else:
-            MODEL_ERROR = f"No .h5 file found in {BASE_DIR}"
+            MODEL_ERROR = f"No model file (.keras or .h5) found in {BASE_DIR}"
             print(f"✗ {MODEL_ERROR}")
+
     except Exception as e:
         MODEL_ERROR = str(e)
-        print(f"✗ {MODEL_ERROR}")
+        print(f"✗ Model load error: {MODEL_ERROR}")
 
 
 # ─────────────────────────────────────────────
@@ -124,18 +147,18 @@ def home():
 body{{font-family:Arial;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
 min-height:100vh;padding:20px}}
 .container{{max-width:900px;margin:0 auto;background:rgba(0,0,0,0.3);
-border-radius:20px;padding:40px;text-align:center}}
+border-radius:20px;padding:40px;text-align:center;color:white}}
 .success{{color:#86efac;margin-bottom:10px;font-size:1.1rem}}
-.error{{background:#fee2e2;color:#dc2626;padding:10px;border-radius:5px;font-size:1rem}}
+.error{{background:#fee2e2;color:#dc2626;padding:10px;border-radius:5px;font-size:0.9rem;text-align:left}}
 </style></head><body>
 <div class="container">
 <h1>🦟 Malaria Detection System</h1>
-<div class="status success">✅ Server Running</div>
-<div class="status success">⚡ Port active</div>
+<div class="success">✅ Server Running</div>
+<div class="success">⚡ Port active</div>
 <div class="{'success' if model is not None else 'error'}">
 {'✅ MODEL LOADED' if model is not None else '❌ NOT LOADED'}
 </div>
-<p>{'Ready' if MODEL_ERROR is None else f'Error: {MODEL_ERROR}'}</p>
+<p>{'✅ Ready for predictions!' if MODEL_ERROR is None else f'Error: {MODEL_ERROR}'}</p>
 </div></body></html>'''
 
 
@@ -146,7 +169,7 @@ def predict():
 
     try:
         if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No file'}), 400
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
 
         file = request.files['file']
         if file.filename == '':
@@ -160,7 +183,6 @@ def predict():
         print(f"Raw prediction: {prediction}, Shape: {prediction.shape}")
 
         prob = float(prediction[0][0])
-        print(f"Probability value: {prob}")
 
         if prob > 0.5:
             pred_class = 0   # Parasitized
@@ -209,6 +231,6 @@ if __name__ == '__main__':
         print(f"  📥 Input: {model.input_shape}, Output: {model.output_shape}")
     if MODEL_ERROR:
         print(f"  ⚠️  Error: {MODEL_ERROR}")
-    print(f"  🌐 Server starting on port {port}")
+    print(f"  🌐 Starting on port {port}")
     print("="*70 + "\n")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
