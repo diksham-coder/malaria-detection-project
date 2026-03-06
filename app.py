@@ -14,7 +14,6 @@ CLASS_NAMES = ['Parasitized', 'Uninfected']
 tf = None
 Image = None
 
-# ── Always resolve paths relative to THIS file, not os.getcwd() ──────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 print("\n" + "="*70)
@@ -45,12 +44,27 @@ if MODEL_ERROR is None:
     try:
         print(f"✓ Script directory: {BASE_DIR}")
 
-        # Search for .h5 model file in the same folder as app.py
         h5_files = [f for f in os.listdir(BASE_DIR) if f.endswith('.h5')]
         if h5_files:
             MODEL_PATH = os.path.join(BASE_DIR, h5_files[0])
             print(f"✓ Found: {h5_files[0]}")
-            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+
+            # ── FIX: batch_shape compatibility for older saved models ──
+            from tensorflow.keras.layers import InputLayer
+
+            class FixedInputLayer(InputLayer):
+                def __init__(self, *args, **kwargs):
+                    if 'batch_shape' in kwargs:
+                        kwargs['input_shape'] = kwargs.pop('batch_shape')[1:]
+                    super().__init__(*args, **kwargs)
+
+            model = tf.keras.models.load_model(
+                MODEL_PATH,
+                custom_objects={'InputLayer': FixedInputLayer},
+                compile=False
+            )
+            # ── END FIX ───────────────────────────────────────────────
+
             model.compile(optimizer='adam', loss='binary_crossentropy',
                           metrics=['accuracy'])
             print(f"✓ Loaded! Input: {model.input_shape}, Output: {model.output_shape}")
@@ -117,7 +131,7 @@ border-radius:20px;padding:40px;text-align:center}}
 <div class="container">
 <h1>🦟 Malaria Detection System</h1>
 <div class="status success">✅ Server Running</div>
-<div class="status success">⚡ Port 5000 active</div>
+<div class="status success">⚡ Port active</div>
 <div class="{'success' if model is not None else 'error'}">
 {'✅ MODEL LOADED' if model is not None else '❌ NOT LOADED'}
 </div>
@@ -148,7 +162,6 @@ def predict():
         prob = float(prediction[0][0])
         print(f"Probability value: {prob}")
 
-        # prob > 0.5 → model outputs "Uninfected" signal → lower index = Parasitized
         if prob > 0.5:
             pred_class = 0   # Parasitized
             confidence = prob * 100
@@ -189,19 +202,13 @@ def health():
 
 
 if __name__ == '__main__':
-    os.makedirs(os.path.join(BASE_DIR, 'templates'), exist_ok=True)
-    os.makedirs(os.path.join(BASE_DIR, 'static'), exist_ok=True)
+    port = int(os.environ.get("PORT", 5000))
     print(f"\n{'='*70}")
     print(f"  {'✅' if model else '❌'} Model: {'LOADED' if model else 'NOT LOADED'}")
     if model:
         print(f"  📥 Input: {model.input_shape}, Output: {model.output_shape}")
     if MODEL_ERROR:
         print(f"  ⚠️  Error: {MODEL_ERROR}")
-    print(f"  🌐 Server: http://127.0.0.1:5000")
+    print(f"  🌐 Server starting on port {port}")
     print("="*70 + "\n")
-
-    app.run(debug=True, host='127.0.0.1', port=5000, use_reloader=False)
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
